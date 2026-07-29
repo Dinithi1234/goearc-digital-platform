@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { registrationRouter } from "./routes/registration.routes.js";
 
 import cors from "cors";
 import express, {
@@ -66,6 +67,8 @@ app.get("/api/health", (_request: Request, response: Response) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+app.use("/api/registrations", registrationRouter);
 
 app.use((_request: Request, response: Response) => {
   response.status(404).json({

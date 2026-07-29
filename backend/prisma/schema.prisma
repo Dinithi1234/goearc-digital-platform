@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Registration {
+  id                   String             @id @default(cuid())
+  referenceNumber      String             @unique
+  caregiverName        String
+  email                String
+  phone                String
+  participantFirstName String
+  participantAge       Int
+  retreatPreference    RetreatPreference
+  preferredRetreat     String?
+  message              String?
+  contactConsent       Boolean
+  status               RegistrationStatus @default(NEW)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@index([email])
+  @@index([createdAt])
+  @@index([status])
+}
+
+enum RetreatPreference {
+  DAY_RETREAT
+  OVERNIGHT_RETREAT
+  NOT_SURE
+}
+
+enum RegistrationStatus {
+  NEW
+  CONTACTED
+  REVIEWING
+  CLOSED
+}
