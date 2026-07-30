@@ -3,14 +3,14 @@
   "version": "1.0.0",
   "type": "module",
   "main": "dist/src/server.js",
-  "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "prisma generate && tsc",
-    "start": "node dist/src/server.js",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
-  },
+ "scripts": {
+  "dev": "tsx watch src/server.ts",
+  "build": "prisma generate && esbuild src/server.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server.js --packages=external",
+  "start": "node dist/server.js",
+  "prisma:generate": "prisma generate",
+  "prisma:migrate": "prisma migrate dev",
+  "prisma:studio": "prisma studio"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -30,6 +30,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^26.1.2",
     "@types/pg": "^8.20.0",
+    "esbuild": "^0.28.1",
     "prisma": "^7.9.1",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2"
