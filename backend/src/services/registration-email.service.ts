@@ -1,6 +1,6 @@
 import "dotenv/config";
 
-import nodemailer from "nodemailer";
+import sgMail from "@sendgrid/mail";
 
 type RegistrationEmailData = {
   referenceNumber: string;
@@ -21,6 +21,15 @@ type RegistrationEmailData = {
 type EmailDeliveryResult = {
   adminSent: boolean;
   familySent: boolean;
+};
+
+type SendGridError = {
+  message?: string;
+  code?: number;
+  response?: {
+    statusCode?: number;
+    body?: unknown;
+  };
 };
 
 function escapeHtml(value: string): string {
@@ -44,6 +53,17 @@ function formatPreference(
   return labels[preference];
 }
 
+function logSendGridError(label: string, error: unknown): void {
+  const sendGridError = error as SendGridError;
+
+  console.error(label, {
+    message: sendGridError?.message,
+    code: sendGridError?.code,
+    statusCode: sendGridError?.response?.statusCode,
+    body: sendGridError?.response?.body,
+  });
+}
+
 export async function sendRegistrationEmails(
   data: RegistrationEmailData,
 ): Promise<EmailDeliveryResult> {
@@ -52,11 +72,12 @@ export async function sendRegistrationEmails(
   const emailEnabled =
     (process.env.EMAIL_ENABLED ?? "false").toLowerCase() === "true";
 
-  const smtpUser = process.env.SMTP_USER?.trim();
-  const smtpPassword = process.env.SMTP_APP_PASSWORD?.replace(/\s/g, "");
+  const apiKey = process.env.SENDGRID_API_KEY?.trim();
+  const senderEmail = process.env.SENDGRID_FROM_EMAIL?.trim();
+  const senderName =
+    process.env.SENDGRID_FROM_NAME?.trim() || "GOEARC Beta";
   const adminEmail =
-    process.env.ADMIN_NOTIFICATION_EMAIL?.trim() || smtpUser;
-  const fromName = process.env.EMAIL_FROM_NAME?.trim() || "GOEARC Beta";
+    process.env.ADMIN_NOTIFICATION_EMAIL?.trim();
 
   if (!emailEnabled) {
     console.log("Registration emails are disabled.");
@@ -67,10 +88,10 @@ export async function sendRegistrationEmails(
     };
   }
 
-  if (!smtpUser || !smtpPassword || !adminEmail) {
-    console.error("Gmail SMTP configuration is incomplete.", {
-      hasSmtpUser: Boolean(smtpUser),
-      hasSmtpPassword: Boolean(smtpPassword),
+  if (!apiKey || !senderEmail || !adminEmail) {
+    console.error("SendGrid email configuration is incomplete.", {
+      hasApiKey: Boolean(apiKey),
+      hasSenderEmail: Boolean(senderEmail),
       hasAdminEmail: Boolean(adminEmail),
     });
 
@@ -80,210 +101,344 @@ export async function sendRegistrationEmails(
     };
   }
 
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: smtpUser,
-      pass: smtpPassword,
-    },
-  });
+  sgMail.setApiKey(apiKey);
 
-  const sender = `"${fromName}" <${smtpUser}>`;
+  const preference = escapeHtml(
+    formatPreference(data.retreatPreference),
+  );
 
   const adminHtml = `
-    <h2>New GOEARC registration</h2>
+    <!doctype html>
+    <html lang="en">
+      <body style="margin:0;background:#edf5ef;font-family:Arial,Helvetica,sans-serif;color:#20392c;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+          <tr>
+            <td align="center" style="padding:30px 15px;">
+              <table
+                role="presentation"
+                width="100%"
+                cellspacing="0"
+                cellpadding="0"
+                style="max-width:650px;background:#ffffff;border-radius:20px;overflow:hidden;"
+              >
+                <tr>
+                  <td style="background:#2f7654;padding:28px 32px;color:#ffffff;">
+                    <p style="margin:0;font-size:12px;font-weight:700;letter-spacing:2px;">
+                      GOEARC REGISTRATION
+                    </p>
 
-    <p><strong>Reference:</strong> ${escapeHtml(data.referenceNumber)}</p>
-    <p><strong>Caregiver:</strong> ${escapeHtml(data.caregiverName)}</p>
-    <p><strong>Email:</strong> ${escapeHtml(data.email)}</p>
-    <p><strong>Phone:</strong> ${escapeHtml(data.phone)}</p>
-    <p><strong>Participant:</strong> ${escapeHtml(
-      data.participantFirstName,
-    )}</p>
-    <p><strong>Age:</strong> ${data.participantAge}</p>
-    <p><strong>Experience:</strong> ${escapeHtml(
-      formatPreference(data.retreatPreference),
-    )}</p>
+                    <h1 style="margin:10px 0 0;font-size:26px;">
+                      New family registration
+                    </h1>
+                  </td>
+                </tr>
 
-    ${
-      data.preferredRetreat
-        ? `<p><strong>Preferred retreat/date:</strong> ${escapeHtml(
-            data.preferredRetreat,
-          )}</p>`
-        : ""
-    }
+                <tr>
+                  <td style="padding:32px;line-height:1.7;">
+                    <p>A new registration of interest has been submitted.</p>
 
-    ${
-      data.message
-        ? `<p><strong>Message:</strong><br>${escapeHtml(data.message)}</p>`
-        : ""
-    }
+                    <div style="background:#edf5ef;border-radius:14px;padding:18px;margin:22px 0;">
+                      <p style="margin:0;color:#607368;font-size:13px;">
+                        Reference number
+                      </p>
 
-    <p><strong>Submitted:</strong> ${escapeHtml(
-      data.createdAt.toISOString(),
-    )}</p>
+                      <p style="margin:6px 0 0;font-size:21px;font-weight:700;color:#163f2d;">
+                        ${escapeHtml(data.referenceNumber)}
+                      </p>
+                    </div>
+
+                    <p>
+                      <strong>Caregiver:</strong>
+                      ${escapeHtml(data.caregiverName)}
+                    </p>
+
+                    <p>
+                      <strong>Email:</strong>
+                      ${escapeHtml(data.email)}
+                    </p>
+
+                    <p>
+                      <strong>Phone:</strong>
+                      ${escapeHtml(data.phone)}
+                    </p>
+
+                    <p>
+                      <strong>Participant:</strong>
+                      ${escapeHtml(data.participantFirstName)}
+                    </p>
+
+                    <p>
+                      <strong>Age:</strong>
+                      ${data.participantAge}
+                    </p>
+
+                    <p>
+                      <strong>Preferred experience:</strong>
+                      ${preference}
+                    </p>
+
+                    ${
+                      data.preferredRetreat
+                        ? `
+                          <p>
+                            <strong>Preferred retreat or date:</strong>
+                            ${escapeHtml(data.preferredRetreat)}
+                          </p>
+                        `
+                        : ""
+                    }
+
+                    ${
+                      data.message
+                        ? `
+                          <h2 style="margin-top:28px;font-size:18px;color:#163f2d;">
+                            Family message
+                          </h2>
+
+                          <p style="line-height:1.7;white-space:pre-wrap;">
+                            ${escapeHtml(data.message)}
+                          </p>
+                        `
+                        : ""
+                    }
+
+                    <p style="margin-top:28px;color:#607368;font-size:13px;">
+                      Submitted:
+                      ${escapeHtml(data.createdAt.toISOString())}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
   `;
 
   const familyHtml = `
-<div style="font-family: Arial, Helvetica, sans-serif; max-width:650px; margin:auto; background:#ffffff; border:1px solid #e8e8e8; border-radius:12px; overflow:hidden;">
+    <!doctype html>
+    <html lang="en">
+      <body style="margin:0;background:#edf5ef;font-family:Arial,Helvetica,sans-serif;color:#20392c;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+          <tr>
+            <td align="center" style="padding:30px 15px;">
+              <table
+                role="presentation"
+                width="100%"
+                cellspacing="0"
+                cellpadding="0"
+                style="max-width:650px;background:#ffffff;border-radius:20px;overflow:hidden;"
+              >
+                <tr>
+                  <td style="background:#2f7654;padding:32px;text-align:center;color:#ffffff;">
+                    <h1 style="margin:0;font-size:30px;">
+                      Welcome to GOEARC
+                    </h1>
 
-  <div style="background:#3A7D44; padding:30px; text-align:center;">
-    <h1 style="color:white; margin:0; font-size:30px;">
-      Welcome to GOEARC
-    </h1>
-    <p style="color:#eef8ef; margin-top:10px; font-size:16px;">
-      Garden of Eden Autism Retreat Centre
-    </p>
-  </div>
+                    <p style="margin:10px 0 0;color:#e5f3e9;">
+                      Garden of Eden Autism Retreat Centre
+                    </p>
+                  </td>
+                </tr>
 
-  <div style="padding:35px; color:#333; line-height:1.8; font-size:16px;">
+                <tr>
+                  <td style="padding:34px;line-height:1.75;font-size:16px;">
+                    <p>
+                      Dear
+                      <strong>${escapeHtml(data.caregiverName)}</strong>,
+                    </p>
 
-    <p>Dear <strong>${escapeHtml(data.caregiverName)}</strong>,</p>
+                    <p>
+                      Thank you for taking this first step and connecting with
+                      the Garden of Eden Autism Retreat Centre.
+                    </p>
 
-    <p>
-      Thank you for taking the first step toward becoming part of the
-      <strong>Garden of Eden Autism Retreat Centre (GOEARC)</strong> community.
-    </p>
+                    <p>
+                      We understand that every family's journey is unique.
+                      Reaching out for support can take courage, and we are
+                      truly grateful that you have chosen to share this step
+                      with us.
+                    </p>
 
-    <p>
-      We know that every family's autism journey is unique, and reaching out for
-      support is not always easy. We are truly honoured that you have chosen to
-      connect with us.
-    </p>
+                    <p>
+                      Your registration for
+                      <strong>${escapeHtml(data.participantFirstName)}</strong>
+                      has been safely received. A member of the GOEARC team
+                      will carefully review the information and contact you
+                      regarding the next steps.
+                    </p>
 
-    <p>
-      Your registration has been safely received and a member of our team will
-      personally review your information before contacting you regarding the
-      next steps.
-    </p>
+                    <div style="background:#edf5ef;border-left:5px solid #2f7654;border-radius:12px;padding:20px;margin:28px 0;">
+                      <p style="margin:0;color:#607368;font-size:13px;">
+                        Your registration reference
+                      </p>
 
-    <div style="background:#F5FBF6; border-left:5px solid #3A7D44; padding:20px; margin:30px 0; border-radius:8px;">
+                      <p style="margin:7px 0 18px;font-size:22px;font-weight:700;color:#163f2d;">
+                        ${escapeHtml(data.referenceNumber)}
+                      </p>
 
-      <h3 style="margin-top:0; color:#2f6d39;">
-        Your Registration Details
-      </h3>
+                      <p style="margin:0 0 8px;">
+                        <strong>Participant:</strong>
+                        ${escapeHtml(data.participantFirstName)}
+                      </p>
 
-      <p><strong>Reference Number</strong><br>
-      ${escapeHtml(data.referenceNumber)}</p>
+                      <p style="margin:0;">
+                        <strong>Preferred experience:</strong>
+                        ${preference}
+                      </p>
 
-      <p><strong>Participant</strong><br>
-      ${escapeHtml(data.participantFirstName)}</p>
+                      ${
+                        data.preferredRetreat
+                          ? `
+                            <p style="margin:8px 0 0;">
+                              <strong>Preferred retreat or date:</strong>
+                              ${escapeHtml(data.preferredRetreat)}
+                            </p>
+                          `
+                          : ""
+                      }
+                    </div>
 
-      <p><strong>Preferred Experience</strong><br>
-      ${escapeHtml(formatPreference(data.retreatPreference))}</p>
+                    <h2 style="font-size:20px;color:#2f7654;">
+                      What happens next?
+                    </h2>
 
-      ${
-        data.preferredRetreat
-          ? `
-            <p><strong>Preferred Retreat</strong><br>
-            ${escapeHtml(data.preferredRetreat)}</p>
-          `
-          : ""
-      }
+                    <ul style="padding-left:22px;line-height:1.9;">
+                      <li>Our team will carefully review your registration.</li>
+                      <li>We will contact you if any clarification is needed.</li>
+                      <li>
+                        We will discuss retreat options that may suit your
+                        family.
+                      </li>
+                      <li>
+                        Availability and further steps will be confirmed
+                        separately.
+                      </li>
+                    </ul>
 
-    </div>
+                    <p>
+                      At GOEARC, we believe every individual deserves to feel
+                      understood, every caregiver deserves support, and every
+                      family deserves opportunities to reconnect, recharge,
+                      and grow together.
+                    </p>
 
-    <h3 style="color:#3A7D44;">
-      What happens next?
-    </h3>
+                    <p>
+                      Please keep your registration reference for future
+                      communication.
+                    </p>
 
-    <ul style="padding-left:20px; line-height:1.9;">
-      <li>Our team will carefully review your registration.</li>
-      <li>We may contact you if additional information is needed.</li>
-      <li>We'll discuss retreat options that best fit your family's needs.</li>
-      <li>You'll receive guidance throughout every step of the process.</li>
-    </ul>
+                    <p style="margin-top:28px;">
+                      With warmth,<br>
+                      <strong>The GOEARC Team</strong><br>
+                      Garden of Eden Autism Retreat Centre
+                    </p>
+                  </td>
+                </tr>
 
-    <p>
-      At GOEARC, we believe every individual deserves to be understood,
-      every caregiver deserves support,
-      and every family deserves a place where they can reconnect, recharge,
-      and thrive together.
-    </p>
-
-    <p>
-      We are grateful you've entrusted us with a small part of your family's
-      journey.
-    </p>
-
-    <p>
-      If you have any questions before we contact you, please don't hesitate
-      to reply to this email or reach out to our team.
-    </p>
-
-    <br>
-
-    <p style="margin-bottom:5px;">
-      With warmth,
-    </p>
-
-    <p style="margin-top:0;">
-      <strong>The GOEARC Team</strong><br>
-      Garden of Eden Autism Retreat Centre
-    </p>
-
-  </div>
-
-  <div style="background:#F8F8F8; text-align:center; padding:20px; font-size:13px; color:#666;">
-
-    <strong>Garden of Eden Autism Retreat Centre</strong><br>
-
-    📧 info@autismretreat.ca<br>
-
-    🌐 www.autismretreat.ca
-
-    <br><br>
-
-    <em>
-      "Where nature nurtures, families reconnect, and hope grows."
-    </em>
-
-  </div>
-
-</div>
-`;
+                <tr>
+                  <td style="background:#f8faf7;padding:22px;text-align:center;color:#607368;font-size:13px;line-height:1.7;">
+                    info@autismretreat.ca<br>
+                    autismretreat.ca
+                    <br><br>
+                    <em>
+                      Where nature nurtures, families reconnect, and hope grows.
+                    </em>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+  `;
 
   let adminSent = false;
   let familySent = false;
 
   try {
-    const adminInfo = await transporter.sendMail({
-      from: sender,
-      to: adminEmail,
-      replyTo: data.email,
+    const [response] = await sgMail.send({
+      to: {
+        email: adminEmail,
+        name: "GOEARC Administrator",
+      },
+      from: {
+        email: senderEmail,
+        name: senderName,
+      },
+      replyTo: {
+        email: data.email,
+        name: data.caregiverName,
+      },
       subject: `New GOEARC registration — ${data.referenceNumber}`,
+      text: [
+        "A new GOEARC registration has been submitted.",
+        `Reference: ${data.referenceNumber}`,
+        `Caregiver: ${data.caregiverName}`,
+        `Email: ${data.email}`,
+        `Phone: ${data.phone}`,
+        `Participant: ${data.participantFirstName}`,
+        `Age: ${data.participantAge}`,
+        `Preferred experience: ${formatPreference(
+          data.retreatPreference,
+        )}`,
+      ].join("\n"),
       html: adminHtml,
+      categories: ["goearc-registration-admin"],
     });
 
-    adminSent = true;
+    adminSent = response.statusCode === 202;
 
-    console.log("Admin email sent successfully:", {
-      messageId: adminInfo.messageId,
-      accepted: adminInfo.accepted,
-      rejected: adminInfo.rejected,
+    console.log("Admin email accepted by SendGrid:", {
+      statusCode: response.statusCode,
     });
   } catch (error) {
-    console.error("Admin email failed:", error);
+    logSendGridError("Admin SendGrid email failed:", error);
   }
 
   try {
-    const familyInfo = await transporter.sendMail({
-      from: sender,
-      to: data.email,
-      replyTo: adminEmail,
-      subject: `GOEARC registration received — ${data.referenceNumber}`,
+    const [response] = await sgMail.send({
+      to: {
+        email: data.email,
+        name: data.caregiverName,
+      },
+      from: {
+        email: senderEmail,
+        name: senderName,
+      },
+      replyTo: {
+        email: adminEmail,
+        name: "GOEARC Team",
+      },
+      subject: `Welcome to GOEARC — registration ${data.referenceNumber}`,
+      text: [
+        `Dear ${data.caregiverName},`,
+        "",
+        "Thank you for connecting with the Garden of Eden Autism Retreat Centre.",
+        `Your registration for ${data.participantFirstName} has been received.`,
+        `Registration reference: ${data.referenceNumber}`,
+        `Preferred experience: ${formatPreference(
+          data.retreatPreference,
+        )}`,
+        "",
+        "A member of the GOEARC team will review your information and contact you regarding the next steps.",
+        "",
+        "With warmth,",
+        "The GOEARC Team",
+      ].join("\n"),
       html: familyHtml,
+      categories: ["goearc-registration-family"],
     });
 
-    familySent = true;
+    familySent = response.statusCode === 202;
 
-    console.log("Family email sent successfully:", {
-      messageId: familyInfo.messageId,
-      accepted: familyInfo.accepted,
-      rejected: familyInfo.rejected,
+    console.log("Family email accepted by SendGrid:", {
+      statusCode: response.statusCode,
     });
   } catch (error) {
-    console.error("Family email failed:", error);
+    logSendGridError("Family SendGrid email failed:", error);
   }
 
   return {
