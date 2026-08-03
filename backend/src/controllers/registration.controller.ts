@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { prisma } from "../lib/prisma.js";
 import { registrationSchema } from "../schemas/registration.schema.js";
 import { generateRegistrationReference } from "../utils/reference-number.js";
+import { sendRegistrationEmails } from "../services/registration-email.service.js";
 
 export async function createRegistration(
   request: Request,
@@ -46,11 +47,25 @@ export async function createRegistration(
       },
     });
 
-    return response.status(201).json({
-      success: true,
-      message: "Registration received successfully.",
-      registration,
-    });
+    const emailDelivery = await sendRegistrationEmails({
+  referenceNumber: registration.referenceNumber,
+  caregiverName: data.caregiverName,
+  email: data.email.toLowerCase(),
+  phone: data.phone,
+  participantFirstName: data.participantFirstName,
+  participantAge: data.participantAge,
+  retreatPreference: data.retreatPreference,
+  preferredRetreat: data.preferredRetreat || null,
+  message: data.message || null,
+  createdAt: registration.createdAt,
+});
+
+   return response.status(201).json({
+  success: true,
+  message: "Registration received successfully.",
+  registration,
+  emailDelivery,
+});
   } catch (error) {
     console.error("Registration creation failed:", error);
 
